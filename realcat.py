@@ -152,15 +152,11 @@ def print_activity_info(activitys):
     print("++++++ End")
 
 if __name__=="__main__":
-    #apkfile = "C:\\Users\\fuchu\\AndroidStudioProjects\\MyApplication\\app\\build\\outputs\\apk\\debug\\app-armeabi-debug.apk"
-    #apkfile = "D:\\apk\\aijjifu\\2.0.1.16\\base.apk"
-    #apkfile = "D:\\apk\\appmarket\\10.6.1.300\\base.apk"
     if len(sys.argv) < 2:
         print("RealCat <apkfile>")
         exit(1)
 
     apkfile = sys.argv[1]
-    #apkfile = "D:\\qpark_app.apk"
     a = APK(apkfile)
     exported_activities = find_browsable_activitis(a)
     if len(exported_activities) == 0:
