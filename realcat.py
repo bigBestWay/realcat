@@ -15,6 +15,7 @@ class ActivityInfo:
         self.name = name
         self.package_name = ''
         self.permission = ''
+        self.deeplinks = []
 
     def __set_package_name__(self, package_name):
         self.package_name = package_name
@@ -33,6 +34,12 @@ class ActivityInfo:
 
     def __get_permission__(self):
         return self.permission
+
+    def __get_deeplinks__(self):
+        return self.deeplinks
+
+    def __set_deeplinks__(self, urls):
+        self.deeplinks = urls
 
 #返回方法对象
 def find_jsbridge_method(dvm):
@@ -86,11 +93,12 @@ def find_browsable_activitis(apk):
             break
 
         isActivityBrowsable = False
+        urls = []
         for filter in intent_filters:
             actions = filter.findall('action')
             categorys = filter.findall('category')
             if actions is None or categorys is None:
-                break
+                continue
             hasViewAction = False
             for action in actions:
                 if "android.intent.action.VIEW" == action.attrib[namespace + "name"]:
@@ -101,9 +109,40 @@ def find_browsable_activitis(apk):
                 if "android.intent.category.BROWSABLE" == categ.attrib[namespace + "name"]:
                     hasBrowsableCateg = True
                     break
-            if hasBrowsableCateg and hasViewAction:
-                isActivityBrowsable = True
-                break
+            if hasBrowsableCateg is not True or hasViewAction is not True:
+                continue
+
+            isActivityBrowsable = True
+            #一个intent_filter里有多条data, 一条data一个URL
+            datas = filter.findall('data')
+            if datas is None:
+                continue
+            for data in datas:
+                scheme = data.attrib.get(namespace + 'scheme', None)
+                if scheme is None:
+                    continue
+                host = data.attrib.get(namespace + 'host', None)
+                port = data.attrib.get(namespace + 'port', None)
+                path = data.attrib.get(namespace + 'path', None)
+                pathPrefix = data.attrib.get(namespace + 'pathPrefix', None)
+                pathPattern = data.attrib.get(namespace + 'pathPattern', None)
+                mimetype = data.attrib.get(namespace + 'mimeType', None)
+                url = scheme + '://'
+                if host is not None:
+                    url += host
+                else:
+                    url += '*'
+                if port is not None:
+                    url += ':' + port
+                if path is not None:
+                    url += path
+                elif pathPattern is not None:
+                    url += pathPattern
+                elif pathPrefix is not None:
+                    url += pathPrefix + '*'
+                if mimetype is not None:
+                    url = 'mimeType=' + mimetype + ", " + url
+                urls.append(url)
 
         if isActivityBrowsable is not True:
             continue
@@ -116,6 +155,7 @@ def find_browsable_activitis(apk):
             permission = activity.attrib.get(namespace + 'permission', None)
             if permission is not None:
                 exported_activity.__set_permission__(permission)
+            exported_activity.__set_deeplinks__(urls)
             exported_activities.append(exported_activity)
     return  exported_activities
 
@@ -135,11 +175,11 @@ def check_dex_packed(apk, dvms):
             #print("activity " + name + " not found in DEX.")
             not_found_count += 1
     percent = not_found_count/total_count
-    #50%都没找到，肯定是加壳了
+    #80%都没找到，肯定是加壳了
     #print(percent)
-    if percent < 0.5:
-        return False
-    return True
+    if percent >= 0.8:
+        return True
+    return False
 
 def print_activity_info(activitys):
     print("++++++ Browsable activities:")
@@ -149,6 +189,9 @@ def print_activity_info(activitys):
         permisson = activity.__get_permission__()
         if len(permisson) > 0:
             print("permission: " + activity.__get_permission__())
+        for url in activity.__get_deeplinks__():
+            print("deeplink: " + url)
+        print("----------------------------------")
     print("++++++ End")
 
 if __name__=="__main__":
@@ -160,7 +203,7 @@ if __name__=="__main__":
     a = APK(apkfile)
     exported_activities = find_browsable_activitis(a)
     if len(exported_activities) == 0:
-        print("*** Not exported BROWSABLE activity ***")
+        print("*** No exported BROWSABLE activity ***")
         exit(0)
 
     print_activity_info(exported_activities)
@@ -168,8 +211,9 @@ if __name__=="__main__":
     print("Working...")
     a,d,dx = AnalyzeAPK(apkfile)
     if check_dex_packed(a, d) == True:
-        print("**** Error:APK Dex packed ****")
-        exit(1)
+        print("**************************************")
+        print("**** Warning:APK Dex maybe packed ****")
+        print("**************************************")
 
     print ("\n++++++ JavascriptInterface:")
     for dex in d:
