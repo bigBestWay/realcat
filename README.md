@@ -21,8 +21,12 @@ python3 realcat.py "d:\apk\crowdtest\base.apk"
 ++++++ Browsable activities:
 package: com.huawei.deveco.crowdtest
 name: com.huawei.activity.PrivacyNoticeActivity
+deeplink: crowdtest://com.huawei.deveco.crowdtest/launch
+----------------------------------
 package: com.huawei.deveco.crowdtest
 name: com.huawei.activity.NotificationClickActivity
+deeplink: crowdtest://com.huawei.deveco.crowdtest/notification
+----------------------------------
 ++++++ End
 Working...
 
