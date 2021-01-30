@@ -10,6 +10,7 @@ import sys
 # Enable log output
 #show_logging(level=logging.DEBUG)
 
+
 class ActivityInfo:
     def __init__(self, name):
         self.name = name
@@ -41,11 +42,12 @@ class ActivityInfo:
     def __set_deeplinks__(self, urls):
         self.deeplinks = urls
 
+
 #返回方法对象
 def find_jsbridge_method(dvm):
     methods = []
     for adi in dvm.map_list.get_item_type("TYPE_ANNOTATIONS_DIRECTORY_ITEM"):
-        if adi.get_method_annotations() == []:
+        if len(adi.get_method_annotations()) == 0:
             continue
 
         # Each annotations_directory_item contains many method_annotation
@@ -74,11 +76,15 @@ def find_jsbridge_method(dvm):
                 #        annotation_element.get_value().get_value(),
                 #    ))
     return methods
+
+
 #com.myapplicaption.example -> Lcom/myapplicaption/example
 def class2path(name):
     name = name.replace('..', '/')
     name = name.replace('.', '/')
     return 'L' + name + ';'
+
+
 #获取导出的browsable activity
 def find_browsable_activitis(apk):
     namespace = '{http://schemas.android.com/apk/res/android}'
@@ -94,9 +100,9 @@ def find_browsable_activitis(apk):
 
         isActivityBrowsable = False
         urls = []
-        for filter in intent_filters:
-            actions = filter.findall('action')
-            categorys = filter.findall('category')
+        for intentfilter in intent_filters:
+            actions = intentfilter.findall('action')
+            categorys = intentfilter.findall('category')
             if actions is None or categorys is None:
                 continue
             hasViewAction = False
@@ -114,7 +120,7 @@ def find_browsable_activitis(apk):
 
             isActivityBrowsable = True
             #一个intent_filter里有多条data, 一条data一个URL
-            datas = filter.findall('data')
+            datas = intentfilter.findall('data')
             if datas is None:
                 continue
             for data in datas:
@@ -157,7 +163,8 @@ def find_browsable_activitis(apk):
                 exported_activity.__set_permission__(permission)
             exported_activity.__set_deeplinks__(urls)
             exported_activities.append(exported_activity)
-    return  exported_activities
+    return exported_activities
+
 
 #检测当前dex是否加壳
 #如果存在动态插件加载的情况，也会导致Manifest.xml声明但DEX中没有，所以做一个阈值比较
@@ -181,6 +188,7 @@ def check_dex_packed(apk, dvms):
         return True
     return False
 
+
 def print_activity_info(activitys):
     print("++++++ Browsable activities:")
     for activity in activitys:
@@ -194,7 +202,8 @@ def print_activity_info(activitys):
         print("----------------------------------")
     print("++++++ End")
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("RealCat <apkfile>")
         exit(1)
@@ -209,13 +218,13 @@ if __name__=="__main__":
     print_activity_info(exported_activities)
 
     print("Working...")
-    a,d,dx = AnalyzeAPK(apkfile)
-    if check_dex_packed(a, d) == True:
+    a, d, dx = AnalyzeAPK(apkfile)
+    if check_dex_packed(a, d) is True:
         print("**************************************")
         print("**** Warning:APK Dex maybe packed ****")
         print("**************************************")
 
-    print ("\n++++++ JavascriptInterface:")
+    print("\n++++++ JavascriptInterface:")
     for dex in d:
         try:
             methods = find_jsbridge_method(dex)
