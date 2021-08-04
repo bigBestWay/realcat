@@ -202,6 +202,15 @@ def print_activity_info(activitys):
         print("----------------------------------")
     print("++++++ End")
 
+def find_native_method(dx):
+    methods = []
+    for method in dx.get_methods():
+        m = method.get_method()
+        access_str = m.get_access_flags_string()
+        #print(access_str)
+        if access_str.find('native') != -1:
+            methods.append(m)
+    return methods
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -219,6 +228,13 @@ if __name__ == "__main__":
 
     print("Working...")
     a, d, dx = AnalyzeAPK(apkfile)
+
+    print("\n++++++ Native Methods:")
+    native_methods = find_native_method(dx)
+    for m in native_methods:
+        print(m.get_class_name() + " -> " + m.get_name() + m.get_descriptor())
+    print("++++++ End")
+
     if check_dex_packed(a, d) is True:
         print("**************************************")
         print("**** Warning:APK Dex maybe packed ****")
