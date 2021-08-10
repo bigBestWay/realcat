@@ -1,4 +1,7 @@
 #coding=utf-8
+import json
+from enum import Enum
+
 from androguard.core.bytecodes.apk import APK
 from androguard.core.bytecodes.dvm import DalvikVMFormat
 from androguard.core.analysis.analysis import Analysis
@@ -7,16 +10,33 @@ from androguard.core.androconf import show_logging
 import logging
 from androguard.misc import AnalyzeAPK
 import sys
+import GhidraHelper
+import RealcatUtil
 # Enable log output
 #show_logging(level=logging.DEBUG)
 
+Component = Enum("Component", ('Activity','Service','ContentProvider','BroadcastReceiver'))
 
-class ActivityInfo:
+class ComponentInfo:
     def __init__(self, name):
+        self.type = None
         self.name = name
         self.package_name = ''
         self.permission = ''
         self.deeplinks = []
+        self.browsable = None
+
+    def __set_type__(self, type):
+        self.type = type
+
+    def __get_type__(self):
+        return self.type
+
+    def __set_browsable__(self, flag):
+        self.browsable = flag
+
+    def __get_browsable__(self):
+        return self.browsable
 
     def __set_package_name__(self, package_name):
         self.package_name = package_name
@@ -84,87 +104,99 @@ def class2path(name):
     name = name.replace('.', '/')
     return 'L' + name + ';'
 
-
-#获取导出的browsable activity
-def find_browsable_activitis(apk):
+def find_exported_coms(apk):
     namespace = '{http://schemas.android.com/apk/res/android}'
     xml = apk.get_android_manifest_axml().get_xml_obj()
     packagename = xml.attrib["package"]
     application = xml.find("application")
 
-    exported_activities = []
-    for activity in application:
-        intent_filters = activity.findall("intent-filter")
-        if intent_filters is None:
-            break
-
-        isActivityBrowsable = False
-        urls = []
-        for intentfilter in intent_filters:
-            actions = intentfilter.findall('action')
-            categorys = intentfilter.findall('category')
-            if actions is None or categorys is None:
-                continue
-            hasViewAction = False
-            for action in actions:
-                if "android.intent.action.VIEW" == action.attrib[namespace + "name"]:
-                    hasViewAction = True
-                    break
-            hasBrowsableCateg = False
-            for categ in categorys:
-                if "android.intent.category.BROWSABLE" == categ.attrib[namespace + "name"]:
-                    hasBrowsableCateg = True
-                    break
-            if hasBrowsableCateg is not True or hasViewAction is not True:
-                continue
-
-            isActivityBrowsable = True
-            #一个intent_filter里有多条data, 一条data一个URL
-            datas = intentfilter.findall('data')
-            if datas is None:
-                continue
-            for data in datas:
-                scheme = data.attrib.get(namespace + 'scheme', None)
-                if scheme is None:
-                    continue
-                host = data.attrib.get(namespace + 'host', None)
-                port = data.attrib.get(namespace + 'port', None)
-                path = data.attrib.get(namespace + 'path', None)
-                pathPrefix = data.attrib.get(namespace + 'pathPrefix', None)
-                pathPattern = data.attrib.get(namespace + 'pathPattern', None)
-                mimetype = data.attrib.get(namespace + 'mimeType', None)
-                url = scheme + '://'
-                if host is not None:
-                    url += host
-                else:
-                    url += '*'
-                if port is not None:
-                    url += ':' + port
-                if path is not None:
-                    url += path
-                elif pathPattern is not None:
-                    url += pathPattern
-                elif pathPrefix is not None:
-                    url += pathPrefix + '*'
-                if mimetype is not None:
-                    url = 'mimeType=' + mimetype + ", " + url
-                urls.append(url)
-
-        if isActivityBrowsable is not True:
+    exported_coms = []
+    for element in application:
+        type = None
+        if element.tag == 'activity':
+            type = Component.Activity
+        elif element.tag == 'provider':
+            type = Component.ContentProvider
+        elif element.tag == 'service':
+            type = Component.Service
+        elif element.tag == 'receiver':
+            type = Component.BroadcastReceiver
+        else:
             continue
 
-        activity_name = activity.attrib[namespace + 'name']
-        exported = activity.attrib.get(namespace + 'exported', 'true')
-        if exported == 'true':
-            exported_activity = ActivityInfo(activity_name)
-            exported_activity.__set_package_name__(packagename)
-            permission = activity.attrib.get(namespace + 'permission', None)
-            if permission is not None:
-                exported_activity.__set_permission__(permission)
-            exported_activity.__set_deeplinks__(urls)
-            exported_activities.append(exported_activity)
-    return exported_activities
+        intent_filters = element.findall("intent-filter")
+        urls = []
+        isActivityBrowsable = False
 
+        if type == Component.Activity:
+            for intentfilter in intent_filters:
+                actions = intentfilter.findall('action')
+                categorys = intentfilter.findall('category')
+                if actions is None or categorys is None:
+                    continue
+                hasViewAction = False
+                for action in actions:
+                    if "android.intent.action.VIEW" == action.attrib[namespace + "name"]:
+                        hasViewAction = True
+                        break
+                hasBrowsableCateg = False
+                for categ in categorys:
+                    if "android.intent.category.BROWSABLE" == categ.attrib[namespace + "name"]:
+                        hasBrowsableCateg = True
+                        break
+                if hasBrowsableCateg is True and hasViewAction is True:
+                    isActivityBrowsable = True
+                # 一个intent_filter里有多条data, 一条data一个URL
+                datas = intentfilter.findall('data')
+                if datas is None:
+                    continue
+                for data in datas:
+                    scheme = data.attrib.get(namespace + 'scheme', None)
+                    if scheme is None:
+                        continue
+                    host = data.attrib.get(namespace + 'host', None)
+                    port = data.attrib.get(namespace + 'port', None)
+                    path = data.attrib.get(namespace + 'path', None)
+                    pathPrefix = data.attrib.get(namespace + 'pathPrefix', None)
+                    pathPattern = data.attrib.get(namespace + 'pathPattern', None)
+                    mimetype = data.attrib.get(namespace + 'mimeType', None)
+                    url = scheme + '://'
+                    if host is not None:
+                        url += host
+                    else:
+                        url += '*'
+                    if port is not None:
+                        url += ':' + port
+                    if path is not None:
+                        url += path
+                    elif pathPattern is not None:
+                        url += pathPattern
+                    elif pathPrefix is not None:
+                        url += pathPrefix + '*'
+                    if mimetype is not None:
+                        url = 'mimeType=' + mimetype + ", " + url
+                    urls.append(url)
+
+        exported = element.attrib.get(namespace + 'exported')
+        activity_name = element.attrib[namespace + 'name']
+        is_activity_exported = False
+        if exported is None and intent_filters is not None:
+            is_activity_exported = True
+        elif exported == 'true':
+            is_activity_exported = True
+
+        if is_activity_exported is True:
+            exported_com = ComponentInfo(activity_name)
+            exported_com.__set_type__(type)
+            exported_com.__set_package_name__(packagename)
+            permission = element.attrib.get(namespace + 'permission', None)
+            if permission is not None:
+                exported_com.__set_permission__(permission)
+            if type == Component.Activity:
+                exported_com.__set_deeplinks__(urls)
+                exported_com.__set_browsable__(isActivityBrowsable)
+            exported_coms.append(exported_com)
+    return exported_coms
 
 #检测当前dex是否加壳
 #如果存在动态插件加载的情况，也会导致Manifest.xml声明但DEX中没有，所以做一个阈值比较
@@ -188,16 +220,80 @@ def check_dex_packed(apk, dvms):
         return True
     return False
 
+def writeFile(path, content):
+    fo = open(path, "w")
+    fo.write(content)
+    fo.close()
 
-def print_activity_info(activitys):
-    print("++++++ Browsable activities:")
-    for activity in activitys:
-        print("package: " + activity.__get_package_name__())
-        print("name: " + activity.__get_name__())
-        permisson = activity.__get_permission__()
+def add_components_result(dict, Components):
+    activitys = []
+    services = []
+    receivers = []
+    providers = []
+    for com in Components:
+        dict['package_name'] = com.__get_package_name__()
+        if com.__get_type__() == Component.Activity:
+            e = {}
+            e['name'] = com.__get_name__()
+            if com.__get_permission__() != '':
+                e['permission'] = com.__get_permission__()
+            if len(com.__get_deeplinks__()) != 0:
+                e['deeplinks'] = com.__get_deeplinks__(),
+            e['browsable'] = com.__get_browsable__()
+            activitys.append(e)
+        elif com.__get_type__() == Component.Service:
+            e = {}
+            e['name'] = com.__get_name__()
+            if com.__get_permission__() != '':
+                e['permission'] = com.__get_permission__()
+            services.append(e)
+        elif com.__get_type__() == Component.ContentProvider:
+            e = {}
+            e['name'] = com.__get_name__()
+            if com.__get_permission__() != '':
+                e['permission'] = com.__get_permission__()
+            providers.append(e)
+        elif com.__get_type__() == Component.BroadcastReceiver:
+            e = {}
+            e['name'] = com.__get_name__()
+            if com.__get_permission__() != '':
+                e['permission'] = com.__get_permission__()
+            receivers.append(e)
+
+    dict['activity'] = activitys
+    dict['service'] = services
+    dict['ContentProvider'] = providers
+    dict['BroadcastReceiver'] = receivers
+    return dict
+
+def add_jsbridge_result(dict, methods):
+    method_json = []
+    for method in methods:
+        print(method.get_class_name())
+        src_code = method.get_source()
+        m = {
+            "class": method.get_class_name(),
+            "method": method.get_name() + method.get_descriptor(),
+            "src_code": method.get_source()
+        }
+        method_json.append(m)
+        print(src_code)
+        print("----------------------------------")
+    dict['JavascriptInterface'] = method_json
+    return dict
+
+def print_com_info(components):
+    print("++++++ Exported Components:")
+    for com in components:
+        print("package: " + com.__get_package_name__())
+        print("type: " + str(com.__get_type__()))
+        print("name: " + com.__get_name__())
+        permisson = com.__get_permission__()
         if len(permisson) > 0:
-            print("permission: " + activity.__get_permission__())
-        for url in activity.__get_deeplinks__():
+            print("permission: " + com.__get_permission__())
+        if com.__get_browsable__() is not None:
+            print("browsable: " + str(com.__get_browsable__()))
+        for url in com.__get_deeplinks__():
             print("deeplink: " + url)
         print("----------------------------------")
     print("++++++ End")
@@ -214,17 +310,24 @@ def find_native_method(dx):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("RealCat <apkfile>")
+        print("RealCat <apkfile> [projectdir]")
         exit(1)
 
     apkfile = sys.argv[1]
-    a = APK(apkfile)
-    exported_activities = find_browsable_activitis(a)
-    if len(exported_activities) == 0:
-        print("*** No exported BROWSABLE activity ***")
-        exit(0)
+    proj_dir = '.'
+    if len(sys.argv) == 3:
+        proj_dir = sys.argv[2]
 
-    print_activity_info(exported_activities)
+    dict_json = {}
+    outjson = proj_dir + '/' + RealcatUtil.getRandFileName(apkfile) + ".json"
+
+    a = APK(apkfile)
+    exported_coms = find_exported_coms(a)
+    if len(exported_coms) == 0:
+        print("*** No exported activity ***")
+    else:
+        print_com_info(exported_coms)
+        dict_json = add_components_result(dict_json, exported_coms)
 
     print("Working...")
     a, d, dx = AnalyzeAPK(apkfile)
@@ -244,11 +347,10 @@ if __name__ == "__main__":
     for dex in d:
         try:
             methods = find_jsbridge_method(dex)
-            for method in methods:
-                print(method.get_class_name())
-                src_code = method.get_source()
-                print(src_code)
-                print("----------------------------------")
+            dict_json = add_jsbridge_result(dict_json, methods)
         except Exception as e:
             print(str(e))
     print("++++++ End")
+    json_str = json.dumps(dict_json, indent=4, sort_keys=True, ensure_ascii=False)
+    writeFile(outjson, json_str)
+    print("Report %s generated."%outjson)
