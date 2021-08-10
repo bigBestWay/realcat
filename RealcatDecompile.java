@@ -43,6 +43,8 @@ import ghidra.util.exception.CancelledException;
 import ghidra.util.task.CancelledListener;
 import ghidra.util.task.TaskMonitor;
 import ghidra.util.task.TaskMonitorAdapter;
+import ghidra.util.xml.XmlAttributes;
+import ghidra.util.xml.XmlWriter;
 
 public class RealcatDecompile extends GhidraScript {
 	public static class ReealCatCppExporter extends Exporter {
@@ -54,8 +56,6 @@ public class RealcatDecompile extends GhidraScript {
 
 		private static String EOL = System.getProperty("line.separator");
 
-		private boolean isCreateHeaderFile = false;
-		private boolean isCreateCFile = true;
 		private boolean isUseCppStyleComments = true;
 		//private boolean isSplitFunctions   = false;
 		private DecompileOptions options;
@@ -86,18 +86,10 @@ public class RealcatDecompile extends GhidraScript {
 			if (addrSet == null) {
 				addrSet = program.getMemory();
 			}
-
-			File header = getHeaderFile(file);
-			PrintWriter headerWriter = null;
-			if (isCreateHeaderFile) {
-				headerWriter = new PrintWriter(header);
-			}
-
-			PrintWriter cFileWriter = null;
-			if (isCreateCFile) {
-				cFileWriter = new PrintWriter(file);
-			}
-
+						
+			XmlWriter w = new XmlWriter(file, null);
+			w.startElement("ROOT");
+			
 			CachingPool<DecompInterface> decompilerPool =
 				new CachingPool<>(new DecompilerFactory(program));
 			ParallelDecompilerCallback callback = new ParallelDecompilerCallback(decompilerPool);
@@ -106,12 +98,11 @@ public class RealcatDecompile extends GhidraScript {
 				ParallelDecompiler.createChunkingParallelDecopmiler(callback, chunkingMonitor);
 
 			try {
-				writeProgramDataTypes(program, header, headerWriter, cFileWriter, chunkingMonitor);
 				chunkingMonitor.checkCanceled();
-
-				decompileAndExport(addrSet, program, headerWriter, cFileWriter, parallelDecompiler,
+				
+				decompileAndExport(addrSet, program, w, parallelDecompiler,
 					chunkingMonitor);
-
+				
 				return true;
 			}
 			catch (CancelledException e) {
@@ -124,19 +115,15 @@ public class RealcatDecompile extends GhidraScript {
 			finally {
 				decompilerPool.dispose();
 				parallelDecompiler.dispose();
-
-				if (headerWriter != null) {
-					headerWriter.close();
-				}
-				if (cFileWriter != null) {
-					cFileWriter.close();
-				}
+			
+				w.endElement("ROOT");
+				w.close();
 			}
 
 		}
 
 		private void decompileAndExport(AddressSetView addrSet, Program program,
-				PrintWriter headerWriter, PrintWriter cFileWriter,
+				XmlWriter w,
 				ChunkingParallelDecompiler<CPPResult> parallelDecompiler,
 				ChunkingTaskMonitor chunkingMonitor)
 				throws InterruptedException, Exception, CancelledException {
@@ -153,7 +140,7 @@ public class RealcatDecompile extends GhidraScript {
 				//
 				if (i % 10000 == 0) {
 					List<CPPResult> results = parallelDecompiler.decompileFunctions(functions);
-					writeResults(results, headerWriter, cFileWriter, chunkingMonitor);
+					writeResults(results, w, chunkingMonitor);
 					functions.clear();
 				}
 
@@ -162,13 +149,12 @@ public class RealcatDecompile extends GhidraScript {
 
 			// handle any remaining functions
 			List<CPPResult> results = parallelDecompiler.decompileFunctions(functions);
-			writeResults(results, headerWriter, cFileWriter, chunkingMonitor);
+			writeResults(results, w, chunkingMonitor);
 		}
 
-		private void writeResults(List<CPPResult> results, PrintWriter headerWriter,
-				PrintWriter cFileWriter, TaskMonitor monitor) throws CancelledException {
+		private void writeResults(List<CPPResult> results, XmlWriter w, TaskMonitor monitor) throws CancelledException {
 			monitor.checkCanceled();
-
+						
 			Collections.sort(results);
 
 			StringBuilder headers = new StringBuilder();
@@ -184,6 +170,9 @@ public class RealcatDecompile extends GhidraScript {
 					
 					String bodyCode = entry.getBodyCode();
 					if (bodyCode != null) {
+						XmlAttributes attr = new XmlAttributes();
+						attr.addAttribute("address", entry.getAddress());
+						w.writeElement("function", attr, bodyCode);
 						bodies.append("[Function Address]" + entry.getAddress());//Ìí¼Óº¯ÊýµØÖ·
 						bodies.append(bodyCode);
 						bodies.append(EOL);
@@ -192,13 +181,6 @@ public class RealcatDecompile extends GhidraScript {
 			}
 
 			monitor.checkCanceled();
-
-			if (headerWriter != null) {
-				headerWriter.println(headers.toString());
-			}
-			if (cFileWriter != null) {
-				cFileWriter.print(bodies.toString());
-			}
 		}
 
 		private void configureOptions(Program program) {
@@ -222,50 +204,9 @@ public class RealcatDecompile extends GhidraScript {
 			}
 		}
 
-		private void writeProgramDataTypes(Program program, File header, PrintWriter headerWriter,
-				PrintWriter cFileWriter, TaskMonitor monitor) throws IOException, CancelledException {
-			if (headerWriter != null) {
-				DataTypeManager dtm = program.getDataTypeManager();
-				DataTypeWriter dataTypeWriter =
-					new DataTypeWriter(dtm, headerWriter, isUseCppStyleComments);
-				headerWriter.write(getFakeCTypeDefinitions(dtm.getDataOrganization()));
-				dataTypeWriter.write(dtm, monitor);
-
-				headerWriter.println("");
-				headerWriter.println("");
-
-				if (cFileWriter != null) {
-					cFileWriter.println("#include \"" + header.getName() + "\"");
-				}
-			}
-			else if (cFileWriter != null) {
-				DataTypeManager dtm = program.getDataTypeManager();
-				DataTypeWriter dataTypeWriter =
-					new DataTypeWriter(dtm, cFileWriter, isUseCppStyleComments);
-				dataTypeWriter.write(dtm, monitor);
-			}
-
-			if (cFileWriter != null) {
-				cFileWriter.println("");
-				cFileWriter.println("");
-			}
-
-		}
-
-		private File getHeaderFile(File file) {
-			String name = file.getName();
-			int pos = name.lastIndexOf('.');
-			if (pos > 0) {
-				name = name.substring(0, pos);
-			}
-			return new File(file.getParent(), name + ".h");
-		}
-
 		@Override
 		public List<Option> getOptions(DomainObjectService domainObjectService) {
 			ArrayList<Option> list = new ArrayList<>();
-			list.add(new Option(CREATE_HEADER_FILE, new Boolean(isCreateHeaderFile)));
-			list.add(new Option(CREATE_C_FILE, new Boolean(isCreateCFile)));
 			//list.add(new Option(SPLIT_FILE, new Boolean(isSplitFunctions)));
 			list.add(new Option(USE_CPP_STYLE_COMMENTS, new Boolean(isUseCppStyleComments)));
 			return list;
@@ -276,13 +217,7 @@ public class RealcatDecompile extends GhidraScript {
 			for (Option option : options) {
 				String optName = option.getName();
 				try {
-					if (optName.equals(CREATE_HEADER_FILE)) {
-						isCreateHeaderFile = ((Boolean) option.getValue()).booleanValue();
-					}
-					else if (optName.equals(CREATE_C_FILE)) {
-						isCreateCFile = ((Boolean) option.getValue()).booleanValue();
-					}
-					else if (optName.equals(SPLIT_FILE)) {
+					if (optName.equals(SPLIT_FILE)) {
 						//isSplitFunctions = ((Boolean)option.getValue()).booleanValue();
 					}
 					else if (optName.equals(USE_CPP_STYLE_COMMENTS)) {
@@ -297,72 +232,6 @@ public class RealcatDecompile extends GhidraScript {
 						"Invalid type for option: " + optName + " - " + e.getMessage());
 				}
 			}
-		}
-
-		private static String getBuiltInDeclaration(String typeName, String ctypeName) {
-			return "#define " + typeName + "   " + ctypeName + EOL;
-		}
-
-		private static String getBuiltInDeclaration(String typeName, int typeLen, boolean signed,
-				DataOrganization dataOrganization) {
-			return getBuiltInDeclaration(typeName,
-				dataOrganization.getIntegerCTypeApproximation(typeLen, signed));
-		}
-
-		/**
-		 * Generate suitable C-style definition statements (#define) for any fake data-type names
-		 * which may be produced by the decompiler (e.g., unkint, unkuint, etc.).
-		 * @param dataOrganization
-		 * @return multi-line string containing C-style declarations of fake decompiler types.
-		 */
-		private static String getFakeCTypeDefinitions(DataOrganization dataOrganization) {
-
-			StringWriter writer = new StringWriter();
-
-			// unkbyte - decompiler fabricated unknown types - need only cover sizes larger than the max Undefined size
-			for (int n = 9; n <= 16; n++) {
-				writer.write(getBuiltInDeclaration("unkbyte" + n, n, false, dataOrganization));
-			}
-			writer.write(EOL);
-
-			// unkuint - decompiler fabricated unsigned integer types
-			// need only cover sizes larger than the max integer size (i.e., AbstractIntegerDataType)
-			for (int n = 9; n <= 16; n++) {
-				writer.write(getBuiltInDeclaration("unkuint" + n, n, false, dataOrganization));
-			}
-			writer.write(EOL);
-
-			// unkint - decompiler fabricated signed integer types
-			// need only cover sizes larger than the max integer size (i.e., AbstractIntegerDataType)
-			for (int n = 9; n <= 16; n++) {
-				writer.write(getBuiltInDeclaration("unkint" + n, n, true, dataOrganization));
-			}
-			writer.write(EOL);
-
-			// unkfloat - decompiler fabricated floating point types
-			writer.write(getBuiltInDeclaration("unkfloat1", "float"));
-			writer.write(getBuiltInDeclaration("unkfloat2", "float"));
-			writer.write(getBuiltInDeclaration("unkfloat3", "float"));
-			//writer.write(getBuiltInDeclaration("unkfloat4", "float")); // covered by fixed-size built-in float
-			writer.write(getBuiltInDeclaration("unkfloat5", "double"));
-			writer.write(getBuiltInDeclaration("unkfloat6", "double"));
-			writer.write(getBuiltInDeclaration("unkfloat7", "double"));
-			//writer.write(getBuiltInDeclaration("unkfloat8", "double")); // covered by fixed-size built-in double
-			writer.write(getBuiltInDeclaration("unkfloat9", "long double"));
-			//writer.write(getBuiltInDeclaration("unkfloat10", "long double")); // covered by fixed-size built-in longdouble
-			writer.write(getBuiltInDeclaration("unkfloat11", "long double"));
-			writer.write(getBuiltInDeclaration("unkfloat12", "long double"));
-			writer.write(getBuiltInDeclaration("unkfloat13", "long double"));
-			writer.write(getBuiltInDeclaration("unkfloat14", "long double"));
-			writer.write(getBuiltInDeclaration("unkfloat15", "long double"));
-			writer.write(getBuiltInDeclaration("unkfloat16", "long double"));
-			writer.write(EOL);
-
-			writer.write(getBuiltInDeclaration("BADSPACEBASE", "void"));
-			writer.write(getBuiltInDeclaration("code", "void"));
-			writer.write(EOL);
-
-			return writer.toString();
 		}
 
 	//==================================================================================================
@@ -525,19 +394,16 @@ public class RealcatDecompile extends GhidraScript {
 
 	@Override
 	protected void run() throws Exception {
-		File outputFile = File.createTempFile("decompiler-", "-result");
-		outputFile.deleteOnExit();
+		String[] args = this.getScriptArgs();		
+		File outputFile = new File(args[0]);
 		ReealCatCppExporter cppExporter = new ReealCatCppExporter();
-		List<Option> options = new ArrayList<Option>();
-		options.add(new Option(ReealCatCppExporter.CREATE_HEADER_FILE, new Boolean(false)));
-		cppExporter.setOptions(options);
 		cppExporter.setExporterServiceProvider(state.getTool());
 		cppExporter.export(outputFile, currentProgram, null, monitor);
-
+		/*
 		Scanner input = new Scanner(outputFile);
 		while (input.hasNextLine())
 	    {
 			System.out.println(input.nextLine());
-	    }
+	    }*/ 
 	}
 }
