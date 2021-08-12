@@ -1,5 +1,6 @@
 #coding=utf-8
 import json
+import os
 from enum import Enum
 
 from androguard.core.bytecodes.apk import APK
@@ -16,6 +17,7 @@ import RealcatUtil
 #show_logging(level=logging.DEBUG)
 
 Component = Enum("Component", ('Activity','Service','ContentProvider','BroadcastReceiver'))
+ARCH = Enum("ARCH", ('x86', 'x86_64', 'arm64-v8a', 'armeabi', 'armeabi-v7a'))
 
 class ComponentInfo:
     def __init__(self, name):
@@ -220,18 +222,14 @@ def check_dex_packed(apk, dvms):
         return True
     return False
 
-def writeFile(path, content):
-    fo = open(path, "w")
-    fo.write(content)
-    fo.close()
-
 def add_components_result(dict, Components):
     activitys = []
     services = []
     receivers = []
     providers = []
     for com in Components:
-        dict['package_name'] = com.__get_package_name__()
+        if dict.get('package_name', None) == None:
+            dict['package_name'] = com.__get_package_name__()
         if com.__get_type__() == Component.Activity:
             e = {}
             e['name'] = com.__get_name__()
@@ -308,6 +306,36 @@ def find_native_method(dx):
             methods.append(m)
     return methods
 
+def get_so_functions(apk):
+    so_functions = {}
+    libs = {}
+    for f in apk.get_files():
+        if f.endswith('.so') is True:
+            # 多架构下同一个库选择一个
+            splits = f.split('/')
+            # lib/x86/liblocSDK6a.so
+            if len(splits) != 3:
+                continue
+            arch = splits[1]
+            libname = splits[2]
+            libs[libname] = f
+
+    for k in libs.keys():
+        rawdata = apk.get_file(libs[k])
+        tmpPath = RealcatUtil.createTmpFile(rawdata)
+        try:
+            func_list = GhidraHelper.disass(tmpPath)
+            print(func_list)
+            for func in func_list:
+                if func['name'].startswith('Java_'):
+                    print(func['name'])
+            so_functions[k] = func_list
+        except Exception as e:
+            raise e
+        finally:
+            os.unlink(tmpPath)
+    return so_functions
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("RealCat <apkfile> [projectdir]")
@@ -318,39 +346,55 @@ if __name__ == "__main__":
     if len(sys.argv) == 3:
         proj_dir = sys.argv[2]
 
-    dict_json = {}
+    report_json = {}
     outjson = proj_dir + '/' + RealcatUtil.getRandFileName(apkfile) + ".json"
 
-    a = APK(apkfile)
-    exported_coms = find_exported_coms(a)
+    apk = APK(apkfile)
+    exported_coms = find_exported_coms(apk)
     if len(exported_coms) == 0:
         print("*** No exported activity ***")
     else:
         print_com_info(exported_coms)
-        dict_json = add_components_result(dict_json, exported_coms)
+        report_json = add_components_result(report_json, exported_coms)
 
     print("Working...")
-    a, d, dx = AnalyzeAPK(apkfile)
+    apk, d, dx = AnalyzeAPK(apkfile)
 
-    print("\n++++++ Native Methods:")
-    native_methods = find_native_method(dx)
-    for m in native_methods:
-        print(m.get_class_name() + " -> " + m.get_name() + m.get_descriptor())
-    print("++++++ End")
-
-    if check_dex_packed(a, d) is True:
+    if check_dex_packed(apk, d) is True:
         print("**************************************")
         print("**** Warning:APK Dex maybe packed ****")
         print("**************************************")
+
+    jni_methods = []
+    #反编译so
+    so_functions = get_so_functions(apk)
+    print("\n++++++ Native Methods:")
+    native_methods = find_native_method(dx)
+    for m in native_methods:
+        jni_name = RealcatUtil.java_method2jni_name(m.get_class_name(), m.get_name())
+        func_obj = {
+            'class':m.get_class_name(),
+            'method':m.get_name() + m.get_descriptor()
+        }
+        for so in so_functions.keys():
+            for func in so_functions.get(so):
+                if func.get('name', None) == jni_name:
+                    func_obj['jni_lib'] = so
+                    func_obj['address'] = func['address']
+                    func_obj['src_code'] = func['src_code']
+        print(m.get_class_name() + " -> " + m.get_name() + m.get_descriptor())
+        jni_methods.append(func_obj)
+    report_json['jni_method'] = jni_methods
+    print("++++++ End")
 
     print("\n++++++ JavascriptInterface:")
     for dex in d:
         try:
             methods = find_jsbridge_method(dex)
-            dict_json = add_jsbridge_result(dict_json, methods)
+            report_json = add_jsbridge_result(report_json, methods)
         except Exception as e:
             print(str(e))
     print("++++++ End")
-    json_str = json.dumps(dict_json, indent=4, sort_keys=True, ensure_ascii=False)
-    writeFile(outjson, json_str)
+    json_str = json.dumps(report_json, indent=4, sort_keys=True, ensure_ascii=False)
+    RealcatUtil.writeFile(outjson, json_str)
     print("Report %s generated."%outjson)
