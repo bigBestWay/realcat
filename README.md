@@ -13,6 +13,10 @@ Ghidra
 ```
 https://github.com/NationalSecurityAgency/ghidra
 ```
+JDK11  
+```
+自行安装
+```
 ## 安装
 执行install.py，会自动下载解压GHIDRA工程
 ```python
