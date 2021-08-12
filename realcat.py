@@ -325,7 +325,7 @@ def get_so_functions(apk):
         tmpPath = RealcatUtil.createTmpFile(rawdata)
         try:
             func_list = GhidraHelper.disass(tmpPath)
-            print(func_list)
+            #print(func_list)
             for func in func_list:
                 if func['name'].startswith('Java_'):
                     print(func['name'])

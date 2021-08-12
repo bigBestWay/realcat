@@ -1,6 +1,10 @@
 # realcat
 APK静态分析工具
 ## 依赖
+python3.7
+```python
+https://www.python.org/downloads/
+```
 androguard
 ```
 pip install -U androguard[magic,GUI]
