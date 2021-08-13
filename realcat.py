@@ -322,6 +322,8 @@ def get_so_functions(apk):
 
     for k in libs.keys():
         rawdata = apk.get_file(libs[k])
+        if len(rawdata) == 0:
+            continue
         tmpPath = RealcatUtil.createTmpFile(rawdata)
         try:
             func_list = GhidraHelper.disass(tmpPath)
