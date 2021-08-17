@@ -324,6 +324,7 @@ def get_so_functions(apk):
         rawdata = apk.get_file(libs[k])
         if len(rawdata) == 0:
             continue
+        print('------- Disass ' + k);
         tmpPath = RealcatUtil.createTmpFile(rawdata)
         try:
             func_list = GhidraHelper.disass(tmpPath)
@@ -390,12 +391,14 @@ if __name__ == "__main__":
     print("++++++ End")
 
     print("\n++++++ JavascriptInterface:")
+    js_methods = []
     for dex in d:
         try:
             methods = find_jsbridge_method(dex)
-            report_json = add_jsbridge_result(report_json, methods)
+            js_methods += methods
         except Exception as e:
             print(str(e))
+    report_json = add_jsbridge_result(report_json, js_methods)
     print("++++++ End")
     json_str = json.dumps(report_json, indent=4, sort_keys=True, ensure_ascii=False)
     RealcatUtil.writeFile(outjson, json_str)
