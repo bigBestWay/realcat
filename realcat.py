@@ -1,6 +1,7 @@
 #coding=utf-8
 import json
 import os
+import traceback
 from enum import Enum
 
 from androguard.core.bytecodes.apk import APK
@@ -334,9 +335,11 @@ def get_so_functions(apk):
                     print(func['name'])
             so_functions[k] = func_list
         except Exception as e:
-            raise e
+            #raise e
+            traceback.format_exc()
         finally:
-            os.unlink(tmpPath)
+            if os.path.exists(tmpPath):
+                os.unlink(tmpPath)
     return so_functions
 
 if __name__ == "__main__":
