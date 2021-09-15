@@ -1,4 +1,5 @@
 #coding=utf-8
+import getopt
 import json
 import os
 import traceback
@@ -342,15 +343,32 @@ def get_so_functions(apk):
                 os.unlink(tmpPath)
     return so_functions
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("RealCat <apkfile> [projectdir]")
-        exit(1)
+def usage():
+    print("RealCat [OPTION] -i <apkfile> -o [projectdir]")
+    print("OPTION: \n\t -j: use GHIDRA to recompile so.")
 
-    apkfile = sys.argv[1]
+if __name__ == "__main__":
+    opts, args = getopt.getopt(sys.argv[1:], "hji:o:", ["help", "jni", "input=", "output="])
     proj_dir = '.'
-    if len(sys.argv) == 3:
-        proj_dir = sys.argv[2]
+    apkfile = ''
+    is_use_ghidra = False
+    for o, a in opts:
+        if o in ("-h", "--help"):
+            usage()
+            sys.exit()
+        elif o in ("-o", "--output"):
+            proj_dir = a
+        elif o in ("-i", "--input"):
+            apkfile = a
+        elif o in ("-j", "--jni"):
+            is_use_ghidra = True
+        else:
+            usage()
+            sys.exit()
+
+    if len(apkfile) == 0:
+        usage()
+        exit(1)
 
     report_json = {}
     outjson = proj_dir + '/' + RealcatUtil.getRandFileName(apkfile) + ".json"
@@ -373,7 +391,9 @@ if __name__ == "__main__":
 
     jni_methods = []
     #反编译so
-    so_functions = get_so_functions(apk)
+    so_functions = {}
+    if is_use_ghidra is True:
+        so_functions = get_so_functions(apk)
     print("\n++++++ Native Methods:")
     native_methods = find_native_method(dx)
     for m in native_methods:

@@ -28,7 +28,9 @@ python3 install.py
 ```
 ## 使用方法
 ```
-python3 realcat.py <apkfile> [project dir]
+RealCat [OPTION] -i <apkfile> -o [projectdir]
+OPTION:
+         -j: use GHIDRA to recompile so.
 ```
 ## 功能及使用示例
 1.搜索APK的androidmanifest.xml中导出的组件  
