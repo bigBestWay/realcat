@@ -39,7 +39,7 @@ OPTION:
 
 示例如下：  
 ```
-python3 realcat.py "d:\apk\crowdtest\base.apk"
+python3 realcat.py -i "d:\apk\crowdtest\base.apk"
 ```
 输出:  
 ```
