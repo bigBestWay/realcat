@@ -184,7 +184,7 @@ def find_exported_coms(apk):
         exported = element.attrib.get(namespace + 'exported')
         activity_name = element.attrib[namespace + 'name']
         is_activity_exported = False
-        if exported is None and intent_filters is not None:
+        if exported is None and len(intent_filters) != 0:
             is_activity_exported = True
         elif exported == 'true':
             is_activity_exported = True
